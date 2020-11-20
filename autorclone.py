@@ -11,55 +11,55 @@ import filelock
 
 from logging.handlers import RotatingFileHandler
 
-# ------------配置项开始------------------
+# ------------Configuration item start------------------
 
-# Account目录
-sa_json_folder = r'/root/folderrclone/accounts'  # 绝对目录，最后没有 '/'，路径中不要有空格
+# Account directory
+sa_json_folder = r'/root/folderrclone/accounts'  # Absolute directory, no'/' at the end, no spaces in the path
 
-# Rclone运行命令
-# 1. 填你正在用/想要用的，这里写的是move，也可以是copy/sync ......
-# 2. 建议加上 `--rc` ，不加也没事，后面脚本会自动加上的
-# 3. 因为不起screen，如果你希望关注rclone运行的状态，请一定要用 `--log-file` 将rclone输出重定向到文件
+# Rclone run command
+# 1. Fill in what you are using/want to use, here is move, or copy/sync ......
+# 2. It is recommended to add `--rc`, no matter if you don't add it, the script will automatically add it later
+# 3. Because you can’t afford to screen, if you want to pay attention to the running status of rclone, please use `--log-file` to redirect rclone output to a file
 cmd_rclone = 'rclone move /home/tomove GDrive:/tmp --drive-server-side-across-configs -v --log-file /tmp/rclone.log'
 
-# 检查rclone间隔 (s)
-check_after_start = 60  # 在拉起rclone进程后，休息xxs后才开始检查rclone状态，防止 rclone rc core/stats 报错退出
-check_interval = 10  # 主进程每次进行rclone rc core/stats检查的间隔
+# Check rclone interval (s)
+check_after_start = 60  # After pulling up the rclone process, check the rclone status only after resting xxs to prevent rclone rc core/stats from reporting an error and exiting
+check_interval = 10  # The interval between the main process's rclone rc core/stats check
 
-# rclone帐号更换监测条件
-switch_sa_level = 1  # 需要满足的规则条数，数字越大切换条件越严格，一定小于下面True（即启用）的数量，即 1 - 4(max)
+# rclone account replacement monitoring conditions
+switch_sa_level = 1  # The number of rules that need to be met. The larger the number, the stricter the switching conditions. It must be less than the number of True (ie enabled) below, namely 1-4 (max)
 switch_sa_rules = {
-    'up_than_750': False,  # 当前帐号已经传过750G
-    'error_user_rate_limit': False,  # Rclone 直接提示rate limit错误
-    'zero_transferred_between_check_interval': True,  # 100次检查间隔期间rclone传输的量为0
-    'all_transfers_in_zero': False,  # 当前所有transfers传输size均为0
+    'up_than_750': False,  # The current account has passed 750G
+    'error_user_rate_limit': False,  # Rclone Directly prompt rate limit error
+    'zero_transferred_between_check_interval': True,  # The amount of rclone transfer during the 100 check interval is 0
+    'all_transfers_in_zero': False,  # All current transfers transfer size is 0
 }
 
-# rclone帐号切换方法 (runtime or config)
-# runtime 是修改启动rclone时附加的 `--drive-service-account-file` 参数
-# config  是修改rclone的配置文件 `$HOME/.config/rclone/rclone.conf` ，此时你需要指定后面的rclone配置参数参数
+# rclone account switching method (runtime or config)
+# runtime is to modify the additional `--drive-service-account-file` parameter when starting rclone
+# config is to modify the rclone configuration file `$HOME/.config/rclone/rclone.conf`, at this time you need to specify the following rclone configuration parameters
 switch_sa_way = 'runtime'
 
-# rclone配置参数 （当且仅当 switch_sa_way 为 `config` 时使用，且需要修改）
-rclone_config_path = '/root/.config/rclone/rclone.conf'  # Rclone 配置文件位置
-rclone_dest_name = 'GDrive'  # Rclone目的地名称（与cmd_rclone中对应相同，并保证SA均已添加）
+# rclone configuration parameters (used if and only when switch_sa_way is `config` and need to be modified)
+rclone_config_path = '/root/.config/rclone/rclone.conf'  # Rclone configuration file location
+rclone_dest_name = 'GDrive'  # Rclone destination name (same as corresponding in cmd_rclone, and ensure that SA has been added)
 
-# 本脚本临时文件
+# Temporary file for this script
 instance_lock_path = r'/tmp/autorclone.lock'
 instance_config_path = r'/tmp/autorclone.conf'
 
-# 本脚本运行日志
+# Run log of this script
 script_log_file = r'/tmp/autorclone.log'
 logging_datefmt = "%m/%d/%Y %I:%M:%S %p"
 logging_format = "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s"
 
-# ------------配置项结束------------------
+# ------------End of configuration item------------------
 
-# 运行变量
+# Run variables
 instance_config = {}
 sa_jsons = []
 
-# 日志相关
+# Log related
 logFormatter = logging.Formatter(fmt=logging_format, datefmt=logging_datefmt)
 
 logger = logging.getLogger()
@@ -85,21 +85,21 @@ def write_config(name, value):
         json.dump(instance_config, f, sort_keys=True)
 
 
-# 获得下一个Service Account Credentials JSON file path
+# Get the next Service Account Credentials JSON file path
 def get_next_sa_json_path(_last_sa):
-    if _last_sa not in sa_jsons:  # 空字符串或者错误的sa_json_path，从头开始取
+    if _last_sa not in sa_jsons:  # Empty string or wrong sa_json_path, start from the beginning
         next_sa_index = 0
     else:
         _last_sa_index = sa_jsons.index(_last_sa)
         next_sa_index = _last_sa_index + 1
-    # 超过列表长度从头开始取
+    # Exceed the list length to start from the beginning
     if next_sa_index > len(sa_jsons):
         next_sa_index = next_sa_index - len(sa_jsons)
     return sa_jsons[next_sa_index]
 
 
 def switch_sa_by_config(cur_sa):
-    # 获得rclone配置
+    # Get rclone configuration
     config = configparser.ConfigParser()
     config.read(rclone_config_path)
 
@@ -107,12 +107,12 @@ def switch_sa_by_config(cur_sa):
         logger.critical('Can\'t find section %s in your rclone.conf (path: %s)', (rclone_dest_name, rclone_config_path))
         exit(1)
 
-    # 更改SA信息
+    # Change SA information
     sa_in_config = config[rclone_dest_name].get('service_account_file', '')
     config[rclone_dest_name]['service_account_file'] = cur_sa
     logger.info('Change rclone.conf SA information from %s to %s' % (sa_in_config, cur_sa))
 
-    # 保存
+    # Save
     with open(rclone_config_path, 'w') as configfile:
         config.write(configfile)
 
@@ -123,7 +123,7 @@ def get_email_from_sa(sa):
     return json.load(open(sa, 'r'))['client_email']
 
 
-# 强行杀掉Rclone
+# Forcibly kill Rclone
 def force_kill_rclone_subproc_by_parent_pid(sh_pid):
     if psutil.pid_exists(sh_pid):
         sh_proc = psutil.Process(sh_pid)
@@ -135,70 +135,70 @@ def force_kill_rclone_subproc_by_parent_pid(sh_pid):
 
 
 if __name__ == '__main__':
-    # 单例模式 (￣y▽,￣)╭
+    # Singleton mode (￣y▽,￣)╭
     instance_check = filelock.FileLock(instance_lock_path)
     with instance_check.acquire(timeout=0):
-        # 加载account信息
+        # Load account information
         sa_jsons = glob.glob(os.path.join(sa_json_folder, '*.json'))
         if len(sa_jsons) == 0:
             logger.error('No Service Account Credentials JSON file exists.')
             exit(1)
 
-        # 加载instance配置
+        # Load instance configuration
         if os.path.exists(instance_config_path):
             logger.info('Instance config exist, Load it...')
             config_raw = open(instance_config_path).read()
             instance_config = json.loads(config_raw)
 
-        # 对上次记录的pid信息进行检查
+        # Check the last recorded pid information
         if 'last_pid' in instance_config:
             last_pid = instance_config.get('last_pid')
             logger.debug('Last PID exist, Start to check if it is still alive')
             force_kill_rclone_subproc_by_parent_pid(last_pid)
 
-        # 对上次记录的sa信息进行检查，如果有的话，重排sa_jsons
-        # 这样我们就每次都从一个新的750G开始了
+        # Check the last recorded sa information, if any, rearrange sa_jsons
+        # So we start with a new 750G every time
         last_sa = instance_config.get('last_sa', '')
         if last_sa in sa_jsons:
             logger.info('Get `last_sa` from config, resort list `sa_jsons`')
             last_sa_index = sa_jsons.index(last_sa)
             sa_jsons = sa_jsons[last_sa_index:] + sa_jsons[:last_sa_index]
 
-        # 修正cmd_rclone 防止 `--rc` 缺失
+        # Fix cmd_rclone to prevent missing `--rc`
         if cmd_rclone.find('--rc') == -1:
             logger.warning('Lost important param `--rc` in rclone commands, AutoAdd it.')
             cmd_rclone += ' --rc'
 
-        # 帐号切换循环
+        # Account switching cycle
         while True:
             logger.info('Switch to next SA..........')
             last_sa = current_sa = get_next_sa_json_path(last_sa)
             write_config('last_sa', current_sa)
             logger.info('Get SA information, file: %s , email: %s' % (current_sa, get_email_from_sa(current_sa)))
 
-            # 切换Rclone运行命令
+            # Switch Rclone to run commands
             if switch_sa_way == 'config':
                 switch_sa_by_config(current_sa)
                 cmd_rclone_current_sa = cmd_rclone
             else:
-                # 默认情况视为`runtime`，附加'--drive-service-account-file'参数
+                # It is regarded as `runtime` by default, with additional'--drive-service-account-file' parameter
                 cmd_rclone_current_sa = cmd_rclone + ' --drive-service-account-file %s' % (current_sa,)
 
-            # 起一个subprocess调rclone
+            # Start a subprocess to adjust rclone
             proc = subprocess.Popen(cmd_rclone_current_sa, shell=True)
 
-            # 等待，以便rclone完全起起来
+            # Wait so that rclone is fully up
             logger.info('Wait %s seconds to full call rclone command: %s' % (check_after_start, cmd_rclone_current_sa))
             time.sleep(check_after_start)
 
-            # 记录pid信息
-            # 注意，因为subprocess首先起sh，然后sh再起rclone，所以此处记录的实际是sh的pid信息
-            # proc.pid + 1 在一般情况下就是rclone进程的pid，但不确定
-            # 所以一定要用 force_kill_rclone_subproc_by_parent_pid(sh_pid) 方法杀掉rclone
+            # Record pid information
+            # Note that because the subprocess starts sh first, and then sh starts rclone, the pid information recorded here is actually sh
+            # proc.pid + 1 is the pid of the rclone process in general, but not sure
+            # So be sure to use force_kill_rclone_subproc_by_parent_pid(sh_pid) method to kill rclone
             write_config('last_pid', proc.pid)
             logger.info('Run Rclone command Success in pid %s' % (proc.pid + 1))
 
-            # 主进程使用 `rclone rc core/stats` 检查子进程情况
+            # The main process uses `rclone rc core/stats` to check the status of the child processes
             cnt_error = 0
             cnt_403_retry = 0
             cnt_transfer_last = 0
@@ -216,70 +216,70 @@ if __name__ == '__main__':
 
                     logger.warning(err_msg + ' Wait %s seconds to recheck.' % check_interval)
                     time.sleep(check_interval)
-                    continue  # 重新检查
+                    continue  # check again
                 else:
                     cnt_error = 0
 
-                # 解析 `rclone rc core/stats` 输出
+                # Parse `rclone rc core/stats` output
                 response_json = json.loads(response.decode('utf-8').replace('\0', ''))
                 cnt_transfer = response_json.get('bytes', 0)
 
-                # 输出当前情况
+                # Output current situation
                 logger.info('Transfer Status - Upload: %s GiB, Avg upspeed: %s MiB/s, Transfered: %s.' % (
                     response_json.get('bytes', 0) / pow(1024, 3),
                     response_json.get('speed', 0) / pow(1024, 2),
                     response_json.get('transfers', 0)
                 ))
 
-                # 判断是否应该进行切换
+                # Determine whether to switch
                 should_switch = 0
                 switch_reason = 'Switch Reason: '
 
-                # 检查当前总上传是否超过 750 GB
+                # Check if the current total upload exceeds 750 GB
                 if switch_sa_rules.get('up_than_750', False):
                     if cnt_transfer > 750 * pow(1000, 3):  # 这里是 750GB 而不是 750GiB
                         should_switch += 1
                         switch_reason += 'Rule `up_than_750` hit, '
 
-                # 检查监测期间rclone传输的量
+                # Check the amount of rclone transferred during monitoring
                 if switch_sa_rules.get('zero_transferred_between_check_interval', False):
-                    if cnt_transfer - cnt_transfer_last == 0:  # 未增加
+                    if cnt_transfer - cnt_transfer_last == 0:  # Not increased
                         cnt_403_retry += 1
                         if cnt_403_retry % 10 == 0:
                             logger.warning('Rclone seems not transfer in %s checks' % cnt_403_retry)
-                        if cnt_403_retry >= 100:  # 超过100次检查均未增加
+                        if cnt_403_retry >= 100:  # No increase after more than 100 inspections
                             should_switch += 1
                             switch_reason += 'Rule `zero_transferred_between_check_interval` hit, '
                     else:
                         cnt_403_retry = 0
                     cnt_transfer_last = cnt_transfer
 
-                # Rclone 直接提示错误403 ratelimitexceed
+                # Rclone directly prompts error 403 ratelimitexceed
                 if switch_sa_rules.get('error_user_rate_limit', False):
                     last_error = response_json.get('lastError', '')
                     if last_error.find('userRateLimitExceeded') > -1:
                         should_switch += 1
                         switch_reason += 'Rule `error_user_rate_limit` hit, '
 
-                # 检查当前transferring的传输量
+                # Rclone directly prompts error 403 ratelimitexceed
                 if switch_sa_rules.get('all_transfers_in_zero', False):
                     graceful = True
                     if response_json.get('transferring', False):
                         for transfer in response_json['transferring']:
-                            # 处理`bytes`或者`speed`不存在的情况（认为该transfer已经完成了） @yezi1000
+                            # Handle the situation where `bytes` or `speed` does not exist (think that the transfer has been completed) @yezi1000
                             if 'bytes' not in transfer or 'speed' not in transfer:
                                 continue
-                            elif transfer.get('bytes', 0) != 0 and transfer.get('speed', 0) > 0:  # 当前还有未完成的传输
+                            elif transfer.get('bytes', 0) != 0 and transfer.get('speed', 0) > 0:  # There are currently unfinished transfers
                                 graceful = False
                                 break
                     if graceful:
                         should_switch += 1
                         switch_reason += 'Rule `all_transfers_in_zero` hit, '
 
-                # 大于设置的更换级别
+                # Greater than the set replacement level
                 if should_switch >= switch_sa_level:
                     logger.info('Transfer Limit may hit (%s), Try to Switch..........' % switch_reason)
-                    force_kill_rclone_subproc_by_parent_pid(proc.pid)  # 杀掉当前rclone进程
-                    break  # 退出主进程监测循环，从而切换到下一个帐号
+                    force_kill_rclone_subproc_by_parent_pid(proc.pid)  # Kill the current rclone process
+                    break  # Exit the main process monitoring loop and switch to the next account
 
                 time.sleep(check_interval)
